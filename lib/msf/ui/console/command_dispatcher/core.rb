@@ -39,6 +39,7 @@ module CommandDispatcher
 class Core
 
   include Msf::Ui::Console::CommandDispatcher
+  include Msf::Ui::Console::CommandDispatcher::Common
 
   # Session command options
   @@sessions_opts = Rex::Parser::Arguments.new(
@@ -1510,7 +1511,9 @@ class Core
     print_line "If both are omitted, print options that are currently set."
     print_line
     print_line "If run from a module context, this will set the value in the module's"
-    print_line "datastore.  Use -g to operate on the global datastore"
+    print_line "datastore.  Use -g to operate on the global datastore."
+    print_line
+    print_line "If setting a PAYLOAD, this command can take an index from `show payloads'."
     print_line
   end
 
@@ -1574,6 +1577,22 @@ class Core
     name  = args[0]
     value = args[1, args.length-1].join(' ')
 
+    # Set PAYLOAD
+    if name.upcase == 'PAYLOAD' && active_module && (active_module.exploit? || active_module.evasion?)
+      if value.start_with?('/', 'payload/')
+        # Trims starting `/`, `payload/`, `/payload/` from user input
+        value.sub!(%r{^/?(?:payload/)?}, '')
+      else
+        # Checking set PAYLOAD by index
+        index_from_list(payload_show_results, value) do |mod|
+          return false unless mod && mod.respond_to?(:first)
+
+          # [name, class] from payload_show_results
+          value = mod.first
+        end
+      end
+    end
+
     # If the driver indicates that the value is not valid, bust out.
     if (driver.on_variable_set(global, name, value) == false)
       print_error("The value specified for #{name} is not valid.")
@@ -1592,11 +1611,15 @@ class Core
     end
 
     # Set PAYLOAD from TARGET
-    if name.upcase == 'TARGET' && active_module && active_module.exploit?
-      active_module.import_target_datastore
+    if name.upcase == 'TARGET' && active_module && (active_module.exploit? || active_module.evasion?)
+      active_module.import_target_defaults
     end
 
     print_line("#{name} => #{datastore[name]}")
+  end
+
+  def payload_show_results
+    Msf::Ui::Console::CommandDispatcher::Modules.class_variable_get(:@@payload_show_results)
   end
 
   #
@@ -1628,6 +1651,7 @@ class Core
       Prompt
       PromptChar
       PromptTimeFormat
+      MeterpreterPrompt
     }
     mod = active_module
 
